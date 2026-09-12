@@ -8,6 +8,8 @@ from fashion_ai.config import INPUTS_DIR, ARTIFACTS_DIR, OUTPUT_DIR, MOCK_MODE
 from fashion_ai.schemas.user_profile import PerspectiveImages, UserMetrics, UserProfile
 from fashion_ai.schemas.tryon import GarmentArtifact
 from fashion_ai.services.camera import CameraCaptureService
+from fashion_ai.services.vision_service import VisionService
+from fashion_ai.services.vonage_video_service import VonageVideoService
 from fashion_ai.pipeline import FashionAIPipeline
 
 logging.basicConfig(
@@ -22,7 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Fashion AI: Multi-Perspective Visual Styling & Virtual Try-On Pipeline"
     )
     parser.add_argument("--mock", action="store_true", default=MOCK_MODE, help="Run in offline mock mode")
-    parser.add_argument("--camera", action="store_true", help="Launch interactive camera capture for front/side images")
+    parser.add_argument("--camera", action="store_true", help="Launch interactive camera capture with real-time Vision API analysis")
+
+    # Vonage Video API options
+    parser.add_argument("--vonage", action="store_true", help="Initialize a Vonage WebRTC video room & generate browser client")
+    parser.add_argument("--vonage-video", type=str, help="Path to a recorded Vonage video stream/archive to extract frames from")
 
     # Image inputs
     parser.add_argument("--front", type=str, help="Path to front full-body image")
@@ -51,15 +57,51 @@ def main():
     front_img = args.front
     side_img = args.side
     angled_img = args.angled
+    live_vision_signals = None
 
-    # If camera capture requested
+    # Handle Vonage Video Session Generation
+    if args.vonage:
+        logger.info("Initializing Vonage Video API WebRTC session...")
+        vonage_svc = VonageVideoService(mock_mode=args.mock)
+        session_info = vonage_svc.create_video_session(media_mode="routed")
+        token = vonage_svc.generate_client_token(session_info["session_id"])
+        html_client_path = vonage_svc.generate_webrtc_html_client(
+            session_id=session_info["session_id"],
+            token=token,
+            output_file=OUTPUT_DIR / "vonage_video_client.html",
+        )
+        print("\n" + "=" * 70)
+        print("         VONAGE VIDEO API WEBRTC LIVE SESSION READY")
+        print("=" * 70)
+        print(f"Session ID  : {session_info['session_id']}")
+        print(f"Client Token: {token[:35]}...")
+        print(f"Browser WebRTC Client: file://{html_client_path.resolve()}")
+        print("Open the HTML file in Chrome/Safari to stream camera and capture frames!")
+        print("=" * 70 + "\n")
+
+    # Handle Vonage Recorded Video Stream Ingestion
+    if args.vonage_video:
+        logger.info(f"Extracting multi-perspective frames from Vonage video: {args.vonage_video}")
+        vonage_svc = VonageVideoService(mock_mode=args.mock)
+        extracted = vonage_svc.extract_frames_from_video(args.vonage_video)
+        import cv2
+        for angle, frame in extracted.items():
+            out_p = INPUTS_DIR / f"vonage_{angle}.jpg"
+            cv2.imwrite(str(out_p), frame)
+            if angle == "front": front_img = str(out_p)
+            elif angle == "side": side_img = str(out_p)
+            elif angle == "angled": angled_img = str(out_p)
+        logger.info(f"Extracted {len(extracted)} perspective frames from Vonage video.")
+
+    # If OpenCV local camera capture requested
     if args.camera:
-        logger.info("Opening live webcam capture...")
-        cam_service = CameraCaptureService(output_dir=INPUTS_DIR)
-        captured = cam_service.capture_perspectives_interactive()
-        front_img = captured.get("front", front_img)
-        side_img = captured.get("side", side_img)
-        angled_img = captured.get("angled", angled_img)
+        logger.info("Opening live webcam capture with Google Vision API integration...")
+        vision_service = VisionService(mock_mode=args.mock)
+        cam_service = CameraCaptureService(output_dir=INPUTS_DIR, vision_service=vision_service)
+        captured_paths, live_vision_signals = cam_service.capture_perspectives_interactive()
+        front_img = captured_paths.get("front", front_img)
+        side_img = captured_paths.get("side", side_img)
+        angled_img = captured_paths.get("angled", angled_img)
 
     # Fallback to sample placeholder if none provided
     if not front_img:
@@ -111,19 +153,31 @@ def main():
 
     # Execute Pipeline
     pipeline = FashionAIPipeline(output_dir=OUTPUT_DIR, mock_mode=args.mock)
-    results = pipeline.run(profile=profile, garment_artifact=garment)
+    results = pipeline.run(
+        profile=profile,
+        garment_artifact=garment,
+        precomputed_vision_signals=live_vision_signals,
+    )
     recs = results['stylist_recommendations']
 
     print("\n" + "=" * 70)
     print("           FASHION AI PIPELINE EXECUTION SUMMARY")
     print("=" * 70)
-    print(f"\n1. EXTRACTED BODY FEATURES (Saved: {results['body_features_file']}):")
+    print(f"\n1. GOOGLE VISION API ANALYSIS (Saved: {results['vision_analysis_file']}):")
+    v_signals = results.get("vision_signals", {})
+    print(f"   - Perspectives Analyzed: {v_signals.get('total_perspectives_analyzed', len(v_signals.get('perspectives', {})))}")
+    print(f"   - Detected Objects: {', '.join(v_signals.get('detected_objects_summary', ['Person', 'Apparel']))}")
+    if "composite_dominant_colors" in v_signals:
+        color_hexes = [c['hex'] for c in v_signals['composite_dominant_colors'][:4]]
+        print(f"   - Sampled Dominant Palette: {', '.join(color_hexes)}")
+
+    print(f"\n2. EXTRACTED BODY FEATURES (Saved: {results['body_features_file']}):")
     print(f"   - Body Shape: {results['body_features'].body_shape.upper()}")
     print(f"   - Color Season: {results['body_features'].color_season.upper()}")
     print(f"   - Undertone: {results['body_features'].tone.undertone.capitalize()} (Contrast: {results['body_features'].tone.contrast_level})")
     print(f"   - Summary: {results['body_features'].overall_summary}")
 
-    print(f"\n2. BODY STRUCTURE RECOMMENDATIONS (DO's & DONT's):")
+    print(f"\n3. BODY STRUCTURE RECOMMENDATIONS (DO's & DONT's):")
     print(f"   [Rationale]: {recs.body_dos_and_donts.proportional_rationale}")
     print("   [DO's]:")
     for item in recs.body_dos_and_donts.dos:
@@ -132,7 +186,7 @@ def main():
     for item in recs.body_dos_and_donts.donts:
         print(f"     - {item}")
 
-    print(f"\n3. SKIN ANALYSIS RECOMMENDATIONS (DO's & DONT's):")
+    print(f"\n4. SKIN ANALYSIS RECOMMENDATIONS (DO's & DONT's):")
     print(f"   [Rationale]: {recs.skin_dos_and_donts.chromatic_rationale}")
     print("   [DO's]:")
     for item in recs.skin_dos_and_donts.dos:
@@ -143,7 +197,7 @@ def main():
 
     if results["tryon_verdict"]:
         verdict = results["tryon_verdict"]
-        print(f"\n4. VIRTUAL TRY-ON VERDICT FOR ARTIFACT '{garment.name}':")
+        print(f"\n5. VIRTUAL TRY-ON VERDICT FOR ARTIFACT '{garment.name}':")
         print(f"   - Verdict: {verdict.verdict.upper()} (Score: {verdict.score_out_of_10}/10)")
         print(f"   - Headline: {verdict.verdict_headline}")
         print(f"   - Detailed Rationale: {verdict.detailed_rationale}")

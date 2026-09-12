@@ -10,6 +10,11 @@ load_dotenv(PROJECT_ROOT / ".env")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 
+# Vonage Video API Configuration
+VONAGE_APPLICATION_ID = os.getenv("VONAGE_APPLICATION_ID", "")
+VONAGE_PRIVATE_KEY_PATH = os.getenv("VONAGE_PRIVATE_KEY_PATH", "")
+VONAGE_PRIVATE_KEY = os.getenv("VONAGE_PRIVATE_KEY", "")
+
 # Directory Paths
 DATA_DIR = PROJECT_ROOT / "data"
 INPUTS_DIR = DATA_DIR / "inputs"

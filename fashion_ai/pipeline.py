@@ -43,25 +43,36 @@ class FashionAIPipeline:
         self,
         profile: UserProfile,
         garment_artifact: Optional[GarmentArtifact] = None,
+        precomputed_vision_signals: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Executes the full styling and try-on pipeline."""
+        """Executes the full styling and try-on pipeline with live/file Vision API analysis."""
         logger.info(f"Starting Fashion AI pipeline for profile: {profile.profile_id}")
 
         # -------------------------------------------------------------
-        # 1. Vision Analysis (Google Cloud Vision API cues)
+        # 1. Multi-Perspective Vision Analysis (Google Cloud Vision API)
         # -------------------------------------------------------------
-        vision_signals = None
-        if profile.images.front_image_path and Path(profile.images.front_image_path).exists():
-            logger.info("Stage 1: Extracting Vision API cues from front image...")
-            try:
-                vision_signals = self.vision_service.analyze_image(profile.images.front_image_path)
-            except Exception as e:
-                logger.warning(f"Vision API analysis failed: {e}. Proceeding with multimodal extraction.")
-        elif self.mock_mode:
-            vision_signals = self.vision_service.analyze_image("mock_path.jpg")
+        if precomputed_vision_signals:
+            logger.info("Stage 1: Using Vision API signals captured during live video session.")
+            vision_signals = {
+                "perspectives": precomputed_vision_signals,
+                "total_perspectives_analyzed": len(precomputed_vision_signals),
+                "is_live_capture": True,
+            }
+        else:
+            logger.info("Stage 1: Extracting Vision API cues across all available perspective images...")
+            vision_signals = self.vision_service.analyze_perspectives({
+                "front": profile.images.front_image_path,
+                "side": profile.images.side_image_path,
+                "angled": profile.images.angled_image_path,
+            })
+
+        # Persist Vision API findings
+        vision_file = self.output_dir / f"{profile.profile_id}_vision_analysis.json"
+        vision_file.write_text(json.dumps(vision_signals, indent=2), encoding="utf-8")
+        logger.info(f"Saved Vision API analysis to {vision_file}")
 
         # -------------------------------------------------------------
-        # 2. Body Feature Extraction (Gemini Multimodal + Metrics)
+        # 2. Body Feature Extraction (Gemini Multimodal + Metrics + Vision)
         # -------------------------------------------------------------
         logger.info("Stage 2: Extracting structural body features & color season via LLM Agent...")
         features: BodyFeatures = self.feature_agent.extract_features(profile, vision_signals=vision_signals)
@@ -107,6 +118,7 @@ class FashionAIPipeline:
         return {
             "profile_id": profile.profile_id,
             "vision_signals": vision_signals,
+            "vision_analysis_file": str(vision_file),
             "body_features": features,
             "body_features_file": str(features_file),
             "stylist_recommendations": recommendations,

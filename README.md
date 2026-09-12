@@ -185,3 +185,28 @@ All artifacts and evaluation files are saved to `data/output/`:
 ```bash
 pytest -v
 ```
+
+---
+
+## Vonage Video API Integration
+
+Fashion AI integrates the **Vonage Video API (WebRTC)** for remote video streaming:
+
+1. **Configure Vonage Credentials**:
+   Add to `.env`:
+   ```bash
+   VONAGE_APPLICATION_ID=your_application_id
+   VONAGE_PRIVATE_KEY_PATH=/path/to/private.key
+   ```
+2. **Start a Live WebRTC Session**:
+   ```bash
+   python3 -m fashion_ai.main --vonage
+   ```
+   This generates a WebRTC session, issues a client token, and creates `data/output/vonage_video_client.html`.
+3. **Open Client in Browser**:
+   Open `data/output/vonage_video_client.html` in Chrome or Safari to view your live camera stream and snap Front/Side/Angled frames.
+4. **Ingest Recorded Vonage Streams / Archives**:
+   ```bash
+   python3 -m fashion_ai.main --vonage-video /path/to/recorded_session.mp4
+   ```
+   Extracts multi-perspective frames automatically and runs them through Google Cloud Vision API and the styling pipeline.
