@@ -1,0 +1,7 @@
+google-genai>=1.0.0
+google-cloud-vision>=3.7.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+pillow>=10.0.0
+pytest>=8.0.0
+opencv-python>=4.8.0; sys_platform != "darwin" or platform_machine != "arm64"
