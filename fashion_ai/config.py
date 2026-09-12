@@ -27,9 +27,9 @@ BODY_TYPE_SKILLS_DIR = SKILLS_DIR / "body_types"
 COLOR_SEASON_SKILLS_DIR = SKILLS_DIR / "color_seasons"
 
 # Model Selection (Current Google GenAI SDK standards)
-FEATURE_EXTRACTOR_MODEL = os.getenv("FASHION_FEATURE_MODEL", "gemini-2.5-flash")
-STYLIST_MODEL = os.getenv("FASHION_STYLIST_MODEL", "gemini-2.5-flash")
-TRYON_MODEL = os.getenv("FASHION_TRYON_MODEL", "gemini-2.5-flash")
+FEATURE_EXTRACTOR_MODEL = os.getenv("FASHION_FEATURE_MODEL", "gemini-3.6-flash")
+STYLIST_MODEL = os.getenv("FASHION_STYLIST_MODEL", "gemini-3.6-flash")
+TRYON_MODEL = os.getenv("FASHION_TRYON_MODEL", "gemini-3.6-flash")
 
 # Execution Mode
 MOCK_MODE = os.getenv("FASHION_MOCK_MODE", "false").lower() in ("true", "1", "yes")

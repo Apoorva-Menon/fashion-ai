@@ -1,9 +1,10 @@
-from typing import Optional, List
+from typing import Optional
 from pydantic import BaseModel, Field
 
 class PerspectiveImages(BaseModel):
     front_image_path: str = Field(..., description="Path to front-facing full body portrait")
     side_image_path: Optional[str] = Field(None, description="Path to side profile full body portrait")
+    back_image_path: Optional[str] = Field(None, description="Path to back profile full body portrait")
     angled_image_path: Optional[str] = Field(None, description="Path to 45-degree angled portrait")
 
 class UserMetrics(BaseModel):

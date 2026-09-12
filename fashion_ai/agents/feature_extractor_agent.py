@@ -25,6 +25,7 @@ class FeatureExtractorAgent:
             try:
                 from google import genai
                 self._client = genai.Client(api_key=self.api_key)
+                logger.info(f"Initialized Google GenAI client with model: {self.model_name}")
             except Exception as e:
                 logger.warning(f"Could not initialize google-genai client: {e}. Defaulting to mock mode.")
                 self.mock_mode = True
@@ -50,14 +51,28 @@ class FeatureExtractorAgent:
 
         contents = [prompt_text]
 
-        # Attach multi-perspective images if present
-        for img_path in [profile.images.front_image_path, profile.images.side_image_path, profile.images.angled_image_path]:
+        # Attach multi-perspective images (Front, Side, Back, Angled)
+        image_dict = {
+            "Front Perspective": profile.images.front_image_path,
+            "Side Perspective": profile.images.side_image_path,
+            "Back Perspective": profile.images.back_image_path,
+            "Angled Perspective": profile.images.angled_image_path,
+        }
+
+        loaded_count = 0
+        for label, img_path in image_dict.items():
             if img_path and Path(img_path).exists():
                 try:
-                    pil_img = Image.open(img_path)
+                    # Convert to RGB to ensure alpha channels in PNGs don't cause encoding issues
+                    pil_img = Image.open(img_path).convert("RGB")
+                    contents.append(f"\n[Image: {label}]")
                     contents.append(pil_img)
+                    loaded_count += 1
+                    logger.info(f"Attached {label} from {img_path} ({pil_img.size}) to multimodal request.")
                 except Exception as e:
-                    logger.warning(f"Could not load image {img_path}: {e}")
+                    logger.warning(f"Could not load {label} at {img_path}: {e}")
+
+        logger.info(f"Total perspective images attached for Gemini analysis: {loaded_count}")
 
         response = self._client.models.generate_content(
             model=self.model_name,
@@ -70,11 +85,19 @@ class FeatureExtractorAgent:
             )
         )
 
-        return BodyFeatures.model_validate_json(response.text)
+        # Parse output JSON
+        raw_text = response.text
+        if not raw_text and hasattr(response, 'candidates') and response.candidates:
+            # Fallback for structured content accessor
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'text') and part.text:
+                    raw_text = part.text
+                    break
+
+        return BodyFeatures.model_validate_json(raw_text)
 
     def _mock_extract(self, profile: UserProfile, vision_signals: Optional[Dict[str, Any]]) -> BodyFeatures:
         """Realistic mock extraction based on user metrics for testing."""
-        # Simple heuristic for mock diversity
         bmi = profile.metrics.weight_kg / ((profile.metrics.height_cm / 100) ** 2)
         shape = "hourglass" if profile.metrics.gender_expression == "feminine" else "inverted_triangle"
         

@@ -10,6 +10,7 @@ from fashion_ai.schemas.tryon import GarmentArtifact
 from fashion_ai.services.camera import CameraCaptureService
 from fashion_ai.services.vision_service import VisionService
 from fashion_ai.services.vonage_video_service import VonageVideoService
+from fashion_ai.services.image_loader import auto_discover_perspective_images
 from fashion_ai.pipeline import FashionAIPipeline
 
 logging.basicConfig(
@@ -31,9 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vonage-video", type=str, help="Path to a recorded Vonage video stream/archive to extract frames from")
 
     # Image inputs
-    parser.add_argument("--front", type=str, help="Path to front full-body image")
-    parser.add_argument("--side", type=str, help="Path to side profile full-body image")
-    parser.add_argument("--angled", type=str, help="Path to angled 45-degree full-body image")
+    parser.add_argument("--front", type=str, help="Path or filename to front full-body image")
+    parser.add_argument("--side", type=str, help="Path or filename to side profile full-body image")
+    parser.add_argument("--back", type=str, help="Path or filename to back profile full-body image")
+    parser.add_argument("--angled", type=str, help="Path or filename to angled 45-degree full-body image")
 
     # Ground truth metrics
     parser.add_argument("--height", type=float, default=175.0, help="User height in cm (default: 175)")
@@ -54,9 +56,6 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    front_img = args.front
-    side_img = args.side
-    angled_img = args.angled
     live_vision_signals = None
 
     # Handle Vonage Video Session Generation
@@ -88,36 +87,41 @@ def main():
         for angle, frame in extracted.items():
             out_p = INPUTS_DIR / f"vonage_{angle}.jpg"
             cv2.imwrite(str(out_p), frame)
-            if angle == "front": front_img = str(out_p)
-            elif angle == "side": side_img = str(out_p)
-            elif angle == "angled": angled_img = str(out_p)
+            if angle == "front": args.front = str(out_p)
+            elif angle == "side": args.side = str(out_p)
+            elif angle == "angled": args.angled = str(out_p)
         logger.info(f"Extracted {len(extracted)} perspective frames from Vonage video.")
 
-    # If OpenCV local camera capture requested
+    # Auto-discover or resolve images from data/inputs
+    images = auto_discover_perspective_images(
+        inputs_dir=INPUTS_DIR,
+        front=args.front,
+        side=args.side,
+        back=args.back,
+        angled=args.angled,
+    )
+
+    # If local camera capture requested, update paths
     if args.camera:
         logger.info("Opening live webcam capture with Google Vision API integration...")
         vision_service = VisionService(mock_mode=args.mock)
         cam_service = CameraCaptureService(output_dir=INPUTS_DIR, vision_service=vision_service)
         captured_paths, live_vision_signals = cam_service.capture_perspectives_interactive()
-        front_img = captured_paths.get("front", front_img)
-        side_img = captured_paths.get("side", side_img)
-        angled_img = captured_paths.get("angled", angled_img)
+        for k, v in captured_paths.items():
+            images[k] = v
 
-    # Fallback to sample placeholder if none provided
-    if not front_img:
-        sample_front = INPUTS_DIR / "sample_front.jpg"
-        if sample_front.exists():
-            front_img = str(sample_front)
-        else:
-            front_img = "mock_front.jpg"
+    if not images["front"]:
+        logger.error("No front-facing image found. Please place an image in data/inputs or pass --front.")
+        sys.exit(1)
 
     # Assemble UserProfile
     profile = UserProfile(
         profile_id="user_demo",
         images=PerspectiveImages(
-            front_image_path=front_img,
-            side_image_path=side_img,
-            angled_image_path=angled_img,
+            front_image_path=images["front"],
+            side_image_path=images["side"],
+            back_image_path=images["back"],
+            angled_image_path=images["angled"],
         ),
         metrics=UserMetrics(
             height_cm=args.height,

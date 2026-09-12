@@ -63,6 +63,7 @@ class FashionAIPipeline:
             vision_signals = self.vision_service.analyze_perspectives({
                 "front": profile.images.front_image_path,
                 "side": profile.images.side_image_path,
+                "back": profile.images.back_image_path,
                 "angled": profile.images.angled_image_path,
             })
 
